@@ -11,7 +11,7 @@ import (
 func main() {
 	go func() {
 		for {
-			dvr.Show(0)
+			dvr.Publish(0)
 			time.Sleep(33 * time.Millisecond)
 		}
 	}()

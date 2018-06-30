@@ -4,7 +4,7 @@ extern "C" {
     int PeerInit();
     int Finalize(int);
     int GetFrames();
-    void ShowFrame(int);
+    void PublishFrame(int);
 #ifdef __cplusplus
 }
 #endif

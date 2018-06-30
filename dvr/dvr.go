@@ -4,8 +4,9 @@ package dvr
 #cgo LDFLAGS: -L /home/ar0660/native/PeerSDK/release/linux64/ -lpeersdk
 #cgo LDFLAGS: -lrt
 #cgo LDFLAGS: -lpthread
-#cgo LDFLAGS: -lavcodec -lavutil -lswscale
+#cgo LDFLAGS: -lavcodec -lavformat -lavutil
 #cgo LDFLAGS: -lopencv_core -lopencv_highgui
+#cgo LDFLAGS: /home/ar0660/native/librtmp/srs_librtmp.a
 #cgo CXXFLAGS: -g -std=c++11
 #include "dvr.h"
 */
@@ -23,6 +24,6 @@ func Frames() int {
 	return int(C.GetFrames())
 }
 
-func Show(channel int) {
-	C.ShowFrame(C.int(channel))
+func Publish(channel int) {
+	C.PublishFrame(C.int(channel))
 }
