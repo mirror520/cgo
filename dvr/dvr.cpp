@@ -119,6 +119,7 @@ int ffmpeg_init() {
         fprintf(stderr, "Could not open codec\n");
         return Finalize(-1);
     }
+
     outFtx = avformat_alloc_context();
     if (!outFtx) {
         fprintf(stderr, "Could not allocate video formate context\n");
@@ -211,6 +212,8 @@ int decode(AVCodecContext *dec_ctx, AVFrame *frame, AVPacket *pkt, int64 pts) {
 
         fflush(stdout);
     }
+    
+    return 0;
 }
 
 void PublishFrame(int channel) {

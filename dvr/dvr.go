@@ -1,29 +1,29 @@
 package dvr
 
 /*
-#cgo LDFLAGS: -L /home/ar0660/native/PeerSDK/release/linux64/ -lpeersdk
-#cgo LDFLAGS: -lrt
-#cgo LDFLAGS: -lpthread
+#cgo LDFLAGS: -lpeersdk
 #cgo LDFLAGS: -lavcodec -lavformat -lavutil
-#cgo LDFLAGS: -lopencv_core -lopencv_highgui
-#cgo LDFLAGS: /home/ar0660/native/librtmp/srs_librtmp.a
 #cgo CXXFLAGS: -g -std=c++11
 #include "dvr.h"
 */
 import "C"
 
+// Init ...
 func Init() int {
 	return int(C.PeerInit())
 }
 
+// Finalize ...
 func Finalize() int {
 	return int(C.Finalize(0))
 }
 
+// Frames ...
 func Frames() int {
 	return int(C.GetFrames())
 }
 
+// Publish ...
 func Publish(channel int) {
 	C.PublishFrame(C.int(channel))
 }
