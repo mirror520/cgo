@@ -13,158 +13,180 @@ extern "C" {
 using namespace PeerSDK;
 
 #include <stdio.h>
+#include <pthread.h>
 #include <iostream>
 using namespace std;
 
+typedef struct {
+    AVCodec              *codec;
+    AVCodecContext       *codec_ctx;
+    AVCodecParserContext *parser_ctx;
+    AVFrame              *frame;
+    AVPacket             *packet;
+    int64                pts;
+} FFmpegInput;
+
+typedef struct {
+    AVCodec         *codec;
+    AVCodecContext  *codec_ctx;
+    AVFormatContext *format_ctx;
+    AVOutputFormat  *format;
+    AVPacket        *packet;
+    AVStream        *stream;
+} FFmpegOutput;
+
+typedef struct {
+    FFmpegInput  *in;
+    FFmpegOutput *out;
+} FFmpegIO;
+
 Peer *m_peer;
 PeerStream *m_stream;
-
-AVCodec *inCodec, *outCodec;
-AVFormatContext *outFtx;
-AVOutputFormat *outFmt;
-AVStream *outStream;
-AVCodecParserContext *inParser;
-AVCodecContext *inCtx, *outCtx;
-AVFrame *frame;
-AVPacket *inPkt, *outPkt;
-void ffmpeg_close() {
-    av_parser_close(inParser);
-
-    avcodec_free_context(&inCtx);
-    av_packet_free(&inPkt);
-
-    av_frame_free(&frame);
-
-    avcodec_free_context(&outCtx);
-    av_packet_free(&outPkt);
-}
-
 int Finalize(int code) {
     delete m_peer;
 
     Peer::Cleanup();
-    ffmpeg_close();
 
     return code;
 }
 
-int ffmpeg_init() {
-    inPkt = av_packet_alloc();
-    if (!inPkt) return Finalize(-1);
+FFmpegIO **ffmpeg_ios;
+int ffmpeg_init(int channels) {
+    ffmpeg_ios = (FFmpegIO **) malloc(sizeof(FFmpegIO *) * channels);
 
-    inCodec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
-    if (!inCodec) {
-        fprintf(stderr, "Codec not found\n");
-        return Finalize(-1);
-    }
+    FFmpegInput  *in;
+    FFmpegOutput *out;
 
-    inParser = av_parser_init(inCodec->id);
-    if (!inParser) {
-        fprintf(stderr, "Parser not found\n");
-        return Finalize(-1);
-    }
+    char *url;
+    int len;
+    for (int i=0; i<channels; i++) {
+        ffmpeg_ios[i] = (FFmpegIO *) malloc(sizeof(FFmpegIO) * channels);
+        ffmpeg_ios[i]->in  = (FFmpegInput *) malloc(sizeof(FFmpegInput) *channels);
+        ffmpeg_ios[i]->out = (FFmpegOutput *) malloc(sizeof(FFmpegOutput));
 
-    inCtx = avcodec_alloc_context3(inCodec);
-    if (!inCtx) {
-        fprintf(stderr, "Could not allocate video codec context\n");
-        return Finalize(-1);
-    }
+        in = ffmpeg_ios[i]->in;
+        out = ffmpeg_ios[i]->out;
 
-    if (avcodec_open2(inCtx, inCodec, NULL) < 0) {
-        fprintf(stderr, "Could not open codec\n");
-        return Finalize(-1);
-    }
+        in->packet = av_packet_alloc();
+        if (!in->packet) return Finalize(-1);
 
-    frame = av_frame_alloc();
-    if (!frame) {
-        fprintf(stderr, "Could not allocate video frame\n");
-        return Finalize(-1);
-    }
+        in->codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
+        if (!in->codec) {
+            fprintf(stderr, "Codec not found\n");
+            exit(-1);
+        }
 
-    outPkt = av_packet_alloc();
-    if (!outPkt) return Finalize(-1);
+        in->parser_ctx = av_parser_init(in->codec->id);
+        if (!in->parser_ctx) {
+            fprintf(stderr, "Parser not found\n");
+            exit(-1);
+        }
 
-    outCodec = avcodec_find_encoder(AV_CODEC_ID_H264);
-    if (!outCodec) {
-        fprintf(stderr, "Codec not found\n");
-        return Finalize(-1);
-    }
+        in->codec_ctx = avcodec_alloc_context3(in->codec);
+        if (!in->codec_ctx) {
+            fprintf(stderr, "Could not allocate video codec context\n");
+            exit(-1);
+        }
 
-    outCtx = avcodec_alloc_context3(outCodec);
-    if (!outCtx) {
-        fprintf(stderr, "Could not allocate video codec context\n");
-        return Finalize(-1);
-    }
-    outCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-    outCtx->codec_id = outCodec->id;
-    outCtx->thread_count = 2;
+        if (avcodec_open2(in->codec_ctx, in->codec, NULL) < 0) {
+            fprintf(stderr, "Could not open codec\n");
+            exit(-1);
+        }
 
-    outCtx->bit_rate = 1 * 1024 * 1024;
-    outCtx->width = 1280;
-    outCtx->height = 720;
-    outCtx->time_base = (AVRational) { 1, 1000 };
-    outCtx->framerate = (AVRational) { 30, 1 };
+        in->frame = av_frame_alloc();
+        if (!in->frame) {
+            fprintf(stderr, "Could not allocate video frame\n");
+            exit(-1);
+        }
 
-    outCtx->gop_size = 30;
-    outCtx->max_b_frames = 0;
-    outCtx->pix_fmt = AV_PIX_FMT_YUV420P;
+        out->packet = av_packet_alloc();
+        if (!out->packet) {
+            exit(-1);
+        }
 
-    if (outCodec->id == AV_CODEC_ID_H264) {
-        av_opt_set(outCtx->priv_data, "preset", "ultrafast", 0);
-        av_opt_set(outCtx->priv_data, "tune", "zerolatency", 0);
-        av_opt_set(outCtx->priv_data, "crf", "28", 0);
-    }
+        out->codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+        if (!out->codec) {
+            fprintf(stderr, "Codec not found\n");
+            exit(-1);
+        }
 
-    if (avcodec_open2(outCtx, outCodec, NULL) < 0) {
-        fprintf(stderr, "Could not open codec\n");
-        return Finalize(-1);
-    }
+        out->codec_ctx = avcodec_alloc_context3(out->codec);
+        if (!out->codec_ctx) {
+            fprintf(stderr, "Could not allocate video codec context\n");
+            exit(-1);
+        }
+        out->codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+        out->codec_ctx->codec_id = out->codec->id;
+        out->codec_ctx->thread_count = 2;
 
-    outFtx = avformat_alloc_context();
-    if (!outFtx) {
-        fprintf(stderr, "Could not allocate video formate context\n");
-        return Finalize(-1);
-    }
+        out->codec_ctx->bit_rate = 1 * 1024 * 1024;
+        out->codec_ctx->width = 1280;
+        out->codec_ctx->height = 720;
+        out->codec_ctx->time_base = (AVRational) { 1, 1000 };
+        out->codec_ctx->framerate = (AVRational) { 30, 1 };
 
-    outFmt = av_guess_format("flv", NULL, NULL);
-    if (!outFmt) {
-        fprintf(stderr, "Could not guess output format\n");
-        return Finalize(-1);
-    }
+        out->codec_ctx->gop_size = 30;
+        out->codec_ctx->max_b_frames = 0;
+        out->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
 
-    outStream = avformat_new_stream(outFtx, NULL);
-    if (!outStream) {
-        fprintf(stderr, "Cloud not new stream\n");
-    }
-    outStream->codecpar->codec_tag = 0;
-    avcodec_parameters_from_context(outStream->codecpar, outCtx);
+        if (out->codec->id == AV_CODEC_ID_H264) {
+            av_opt_set(out->codec_ctx->priv_data, "preset", "ultrafast", 0);
+            av_opt_set(out->codec_ctx->priv_data, "tune", "zerolatency", 0);
+            av_opt_set(out->codec_ctx->priv_data, "crf", "28", 0);
+        }
 
-    outFtx->oformat = outFmt;
-    if (avio_open(&outFtx->pb, "rtmp://localhost/live/livestream", AVIO_FLAG_WRITE) < 0) {
-        return Finalize(-1);
-    }
+        if (avcodec_open2(out->codec_ctx, out->codec, NULL) < 0) {
+            fprintf(stderr, "Could not open codec\n");
+            exit(-1);
+        }
 
-    if (avformat_write_header(outFtx, NULL) < 0) {
-        return Finalize(-1);
+        out->format_ctx = avformat_alloc_context();
+        if (!out->format_ctx) {
+            fprintf(stderr, "Could not allocate video formate context\n");
+            exit(-1);
+        }
+
+        out->format = av_guess_format("flv", NULL, NULL);
+        if (!out->format) {
+            fprintf(stderr, "Could not guess output format\n");
+            exit(-1);
+        }
+        out->format_ctx->oformat = out->format;
+
+        out->stream = avformat_new_stream(out->format_ctx, NULL);
+        if (!out->stream) {
+            fprintf(stderr, "Cloud not new stream\n");
+            exit(-1);
+        }
+        out->stream->codecpar->codec_tag = 0;
+        avcodec_parameters_from_context(out->stream->codecpar, out->codec_ctx);
+
+        len = snprintf(NULL, 0, "rtmp://localhost/live/dvr_%d", i);
+        url = (char *) malloc(len + 1);
+        snprintf(url, len + 1, "rtmp://localhost/live/dvr_%d", i);
+        if (avio_open(&out->format_ctx->pb, url, AVIO_FLAG_WRITE) < 0) {
+            exit(-1);
+        }
+
+        if (avformat_write_header(out->format_ctx, NULL) < 0) {
+            exit(-1);
+        }
     }
 
     return 0;
 }
 
-int encode(AVCodecContext *enc_dex, AVFrame *frame, AVPacket *pkt) {
+int encode(FFmpegInput *in, FFmpegOutput *out) {
     int ret;
 
-    if (frame)
-        cout << "Send frame " << frame->pts << endl;
-    
-    ret = avcodec_send_frame(enc_dex, frame);
+    ret = avcodec_send_frame(out->codec_ctx, in->frame);
     if (ret < 0) {
         fprintf(stderr, "Error sending a frame for encoding\n");
-        return Finalize(-1);
+        exit(-1);
     }
 
     while (ret >= 0) {
-        ret = avcodec_receive_packet(enc_dex, pkt);
+        ret = avcodec_receive_packet(out->codec_ctx, out->packet);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
             return 0;
         else if (ret < 0) {
@@ -172,29 +194,31 @@ int encode(AVCodecContext *enc_dex, AVFrame *frame, AVPacket *pkt) {
             return Finalize(-1);
         }
 
-        if (pkt->pts != AV_NOPTS_VALUE ) {
-            pkt->pts = av_rescale_q(frame->pts, AV_TIME_BASE_Q, outCtx->time_base);
-            pkt->dts = av_rescale_q(frame->pts, AV_TIME_BASE_Q, outCtx->time_base);
+        if (out->packet->pts != AV_NOPTS_VALUE ) {
+            out->packet->pts = av_rescale_q(in->frame->pts, AV_TIME_BASE_Q, out->codec_ctx->time_base);
+            out->packet->dts = av_rescale_q(in->frame->pts, AV_TIME_BASE_Q, out->codec_ctx->time_base);
         }
 
-        cout << "Write packet " << pkt->pts << " (size=" << pkt->size << ")" << endl;
-        av_interleaved_write_frame(outFtx, outPkt);
+        av_interleaved_write_frame(out->format_ctx, out->packet);
     }
 
     return 0;
 }
 
-int decode(AVCodecContext *dec_ctx, AVFrame *frame, AVPacket *pkt, int64 pts) {
+void *decode(void *args) {
+    FFmpegIO *io = (FFmpegIO *) args;
+    FFmpegInput *in = io->in;
+    FFmpegOutput *out = io->out;
     int ret;
 
-    ret = avcodec_send_packet(dec_ctx, pkt);
+    ret = avcodec_send_packet(in->codec_ctx, in->packet);
     if (ret < 0) {
         fprintf(stderr, "Error sending a packet for decoding\n");
         exit(1);
     }
 
     while (ret >= 0) {
-        ret = avcodec_receive_frame(dec_ctx, frame);
+        ret = avcodec_receive_frame(in->codec_ctx, in->frame);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
             return 0;
         else if (ret < 0) {
@@ -202,40 +226,36 @@ int decode(AVCodecContext *dec_ctx, AVFrame *frame, AVPacket *pkt, int64 pts) {
             exit(1);
         }
 
-        frame->pts = pts;
+        in->frame->pts = in->pts;
 
-        printf("Load frame - %5d\n", dec_ctx->frame_number);
-
-        if (encode(outCtx, frame, outPkt) < 0) {
+        if (encode(in, out) < 0) {
             continue;
         }
-
-        fflush(stdout);
     }
-    
-    return 0;
 }
 
 void PublishFrame(int channel) {
 
 }
 
-int frames = 0;
+pthread_t *threads;
+int *frames;
 void PEERSDK_CALLBACK OnVideoArrived(void *tag, VideoArrivedEventArgs const &e) {
-    if (e.Channel() != 0) return;
-    
+    int channel = e.Channel();
+    if ((channel != 0) && (channel != 1)) return;
+    frames[channel]++;
+
+    FFmpegInput *in = ffmpeg_ios[channel]->in;
     switch (e.Type()) {
         case VideoType_H265_IFrame:
         case VideoType_H265_PFrame:
-            cout << "Frame " << e.Width() << "x" << e.Height() << endl;
-
             byte const *data = e.Buffer();
             int data_size = e.BufferLength();
-            int64 pts = e.PTS();
+            in->pts = e.PTS();
             int ret;
             while (data_size > 0) {
-                ret = av_parser_parse2(inParser, inCtx, &inPkt->data, &inPkt->size, 
-                                       data, data_size, pts, pts, 0);
+                ret = av_parser_parse2(in->parser_ctx, in->codec_ctx, &in->packet->data, &in->packet->size, 
+                                       data, data_size, in->pts, in->pts, 0);
                 
                 if (ret < 0) {
                     fprintf(stderr, "Error while parsing\n");
@@ -245,22 +265,20 @@ void PEERSDK_CALLBACK OnVideoArrived(void *tag, VideoArrivedEventArgs const &e) 
                 data += ret;
                 data_size -=ret;
 
-                if (inPkt->size) {
-                    decode(inCtx, frame, inPkt, pts);
+                if (in->packet->size) {
+                    pthread_create(&threads[channel], NULL, decode, ffmpeg_ios[channel]);
+                    pthread_join(threads[channel], NULL);
                 }
             }
 
-            frames++;
     }    
 }
 
-int GetFrames() {
-    return frames;
+int GetFrames(int channel) {
+    return (frames) ? frames[channel] : 0;
 }
 
 int PeerInit() {
-    ffmpeg_init();
-
     PeerResult r = Peer::Startup();
     if (!r) {
         cout << "*** failed to initialize" << endl;
@@ -275,7 +293,14 @@ int PeerInit() {
     }
 
     int channels = m_peer->Channels().Count();
-    cout << "Channel Count: " << channels << endl;
+    printf("Channel Count: %d\n", channels);
+
+    ffmpeg_init(channels);
+    threads = (pthread_t *) malloc(sizeof(pthread_t) * channels);
+    frames = (int *) malloc(sizeof(int) * channels);
+    for (int i=0; i<channels; i++) {
+        frames[i] = 0;
+    }
 
     r = m_peer->CreateLiveStream(&m_stream);
     if (!r) {

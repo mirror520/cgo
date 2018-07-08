@@ -3,6 +3,7 @@ package dvr
 /*
 #cgo LDFLAGS: -lpeersdk
 #cgo LDFLAGS: -lavcodec -lavformat -lavutil
+#cgo LDFLAGS: -lpthread
 #cgo CXXFLAGS: -g -std=c++11
 #include "dvr.h"
 */
@@ -19,8 +20,8 @@ func Finalize() int {
 }
 
 // Frames ...
-func Frames() int {
-	return int(C.GetFrames())
+func Frames(channel int) int {
+	return int(C.GetFrames(C.int(channel)))
 }
 
 // Publish ...

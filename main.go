@@ -16,10 +16,12 @@ func main() {
 		}
 	}()
 
-	frames := make(chan int)
+	frames := make(chan string, 8)
 	go func() {
 		for {
-			frames <- dvr.Frames()
+			for i := 0; i < 8; i++ {
+				frames <- fmt.Sprintf("Frame number: %5d (Channel %d)", dvr.Frames(i), i)
+			}
 			time.Sleep(1 * time.Second)
 		}
 	}()
