@@ -59,6 +59,7 @@ typedef struct {
     Peer        *peer;
     PeerStream  *stream;
     int          channel_nums;
+    char        *live_mode;
 } DVRInfo;
 
 DVRInfo *dvr;
@@ -182,6 +183,26 @@ void *decode(void *args) {
         if (in->frame->key_frame) {
             av_frame_unref(in->key_frame);
             av_frame_move_ref(in->key_frame, in->frame);
+        }
+    }
+}
+
+void *shortcut(void *args) {
+    FFmpegIO     *io  = (FFmpegIO *) args;
+    FFmpegInput  *in  = io->in;
+    FFmpegOutput *out = io->out;
+    int ret;
+
+    if (io->is_pub) {
+        in->packet->pts = av_rescale_q(in->pts, AV_TIME_BASE_Q, out->codec_ctx->time_base);
+        in->packet->dts = av_rescale_q(in->pts, AV_TIME_BASE_Q, out->codec_ctx->time_base);
+
+        ret = av_interleaved_write_frame(out->format_ctx, in->packet);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+            return 0;
+        else if (ret < 0) {
+            fprintf(stderr, "Error during encoding\n");
+            exit(-1);
         }
     }
 }
@@ -355,7 +376,12 @@ void PEERSDK_CALLBACK OnVideoArrived(void *tag, VideoArrivedEventArgs const &e) 
         data_size -=ret;
 
         if (in->packet->size) {
-            pthread_create(&threads[c], NULL, decode, ffmpeg_ios[c]);
+            if (strcmp(dvr->live_mode, "shortcut") == 0) {
+                pthread_create(&threads[c], NULL, shortcut, ffmpeg_ios[c]);
+            } else {
+                pthread_create(&threads[c], NULL, decode, ffmpeg_ios[c]);
+            }
+
             pthread_join(threads[c], NULL);
         }
     }
@@ -373,9 +399,12 @@ int PeerInit() {
     char *DVR_RTMP_APP      = getenv("DVR_RTMP_APP");
     char *DVR_STREAM_PREFIX = getenv("DVR_STREAM_PREFIX");
     int   DVR_BIT_RATE = atoi(getenv("DVR_BIT_RATE"));          // unit: KB
+    char *DVR_LIVE_MODE     = getenv("DVR_LIVE_MODE");          // shortcut / codec
 
     dvr = (DVRInfo *) malloc(sizeof(DVRInfo));
     dvr->channel_nums = 0;
+    dvr->live_mode = DVR_LIVE_MODE;
+    cout << "Live Mode: " << dvr->live_mode << endl;
 
     PeerResult r = Peer::Startup();
     if (!r) {
