@@ -80,11 +80,15 @@ func receiveChannelNums(out chan<- int) {
 func receiveChannelStatus(out chan<- string, in <-chan int) {
 	c := <-in
 
+        frameNums := 0
+        previousFrameNums := make([]int, c)
 	var buf bytes.Buffer
 	for {
 		buf.Reset()
 		for i := 0; i < c; i++ {
-			buf.WriteString(fmt.Sprintf("Frame number: %5d, Publish: %5v (Channel %d)\n", dvr.FrameNums(i), dvr.Publish(i), i))
+                        frameNums = dvr.FrameNums(i)
+			buf.WriteString(fmt.Sprintf("Frame number: %5d, Publish: %5v, fps: %2d (Channel %d)\n", frameNums, dvr.Publish(i), frameNums - previousFrameNums[i], i))
+                        previousFrameNums[i] = frameNums
 		}
 
 		out <- buf.String()

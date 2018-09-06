@@ -101,7 +101,8 @@ int ffmpegInit(DVRChannel *channel) {
         fprintf(stderr, "Could not allocate video codec context\n");
         exit(-1);
     }
-
+    in->codec_ctx->thread_count = 2; 
+ 
     if (avcodec_open2(in->codec_ctx, in->codec, NULL) < 0) {
         fprintf(stderr, "Could not open codec\n");
         exit(-1);
@@ -430,3 +431,4 @@ int PeerInit() {
     
     return Finalize(0);
 }
+
