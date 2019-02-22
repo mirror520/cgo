@@ -456,6 +456,7 @@ int PeerInit() {
     dvr->stream->Start();
 
     while (true) {
+        sleep(1000);
     }
     
     return Finalize(0);

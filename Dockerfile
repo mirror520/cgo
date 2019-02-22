@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 
 RUN apt update && apt upgrade -y \
  && apt install -y g++ \
@@ -19,26 +19,29 @@ RUN apt update && apt upgrade -y \
                    libavdevice-dev \
                    libavfilter-dev
 
-ENV GOLANG_VERSION 1.10.3
+ENV GOLANG_VERSION 1.11.5
 ENV goRelArch linux-amd64
 
 RUN wget https://golang.org/dl/go${GOLANG_VERSION}.${goRelArch}.tar.gz \
  && tar -C /usr/local -xzf go${GOLANG_VERSION}.${goRelArch}.tar.gz \
  && rm go${GOLANG_VERSION}.${goRelArch}.tar.gz
 
-COPY ./PeerSDK /native/PeerSDK
-COPY ./go /go
-
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
+
+WORKDIR $GOPATH
+
+COPY ./PeerSDK /native/PeerSDK
+COPY . /go/src/github.com/mirror520/cgo
 
 RUN cp -R /native/PeerSDK/include /usr/local/ \
  && cp /native/PeerSDK/release/linux64/libpeersdk.so /usr/local/lib/libpeersdk.so \
  && ldconfig
 
-WORKDIR $GOPATH
-
-RUN go install github.com/mirror520/cgo
+RUN go get github.com/eclipse/paho.mqtt.golang \
+ && go get github.com/gorilla/mux \
+ && go get github.com/mirror520/cgo \
+ && go install github.com/mirror520/cgo
 
 EXPOSE 8022
 
