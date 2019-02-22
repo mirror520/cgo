@@ -15,7 +15,36 @@ import (
 	MQTT "github.com/eclipse/paho.mqtt.golang"
 	"github.com/gorilla/mux"
 	"github.com/mirror520/cgo/dvr"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+// Exporter ...
+type Exporter struct {
+	fpsGauge prometheus.GaugeVec
+}
+
+// NewExporter ...
+func NewExporter() *Exporter {
+	gauge := *prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "dvr",
+		Name:      "frame_per_seconds",
+		Help:      "Frame per seconds for channel output from DVR system"},
+		[]string{"dvr", "channel"},
+	)
+
+	return &Exporter{fpsGauge: gauge}
+}
+
+// Collect (Exporter.Collect) ...
+func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
+	e.fpsGauge.Collect(ch)
+}
+
+// Describe (Exporter.Describe)
+func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
+	e.fpsGauge.Describe(ch)
+}
 
 func snapshot(channel int, out io.Writer) {
 	image, err := dvr.Snapshot(channel)
@@ -80,6 +109,11 @@ func receiveChannelNums(out chan<- int) {
 func receiveChannelStatus(out chan<- string, in <-chan int) {
 	c := <-in
 
+	dvrName := os.Getenv("DVR_STREAM_PREFIX")
+	exporter := NewExporter()
+	prometheus.MustRegister(exporter)
+
+	fps := 0
 	frameNums := 0
 	previousFrameNums := make([]int, c)
 	var buf bytes.Buffer
@@ -87,7 +121,9 @@ func receiveChannelStatus(out chan<- string, in <-chan int) {
 		buf.Reset()
 		for i := 0; i < c; i++ {
 			frameNums = dvr.FrameNums(i)
-			buf.WriteString(fmt.Sprintf("Frame number: %5d, Publish: %5v, fps: %2d (Channel %d)\n", frameNums, dvr.Publish(i), frameNums-previousFrameNums[i], i))
+			fps = frameNums - previousFrameNums[i]
+			buf.WriteString(fmt.Sprintf("Frame number: %5d, Publish: %5v, fps: %2d (Channel %d)\n", frameNums, dvr.Publish(i), fps, i))
+			exporter.fpsGauge.WithLabelValues(dvrName, strconv.Itoa(i)).Set(float64(fps))
 			previousFrameNums[i] = frameNums
 		}
 
@@ -119,6 +155,7 @@ func main() {
 	go func() {
 		router := mux.NewRouter()
 		router.HandleFunc("/dvr/{channel}", snapshotHandler).Methods("GET")
+		router.Handle("/metrics", promhttp.Handler()).Methods("GET")
 		log.Fatal(http.ListenAndServe(":8022", router))
 	}()
 

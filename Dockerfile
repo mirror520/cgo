@@ -1,4 +1,4 @@
-FROM ubuntu:18.04
+FROM ubuntu:16.04
 
 RUN apt update && apt upgrade -y \
  && apt install -y g++ \
@@ -32,7 +32,6 @@ ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
 WORKDIR $GOPATH
 
 COPY ./PeerSDK /native/PeerSDK
-COPY . /go/src/github.com/mirror520/cgo
 
 RUN cp -R /native/PeerSDK/include /usr/local/ \
  && cp /native/PeerSDK/release/linux64/libpeersdk.so /usr/local/lib/libpeersdk.so \
@@ -41,6 +40,8 @@ RUN cp -R /native/PeerSDK/include /usr/local/ \
 RUN go get github.com/eclipse/paho.mqtt.golang \
  && go get github.com/gorilla/mux \
  && go get github.com/mirror520/cgo \
+ && go get github.com/prometheus/client_golang/prometheus \
+ && go get github.com/prometheus/client_golang/prometheus/promhttp \
  && go install github.com/mirror520/cgo
 
 EXPOSE 8022
