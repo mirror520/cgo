@@ -109,7 +109,7 @@ func receiveChannelNums(out chan<- int) {
 func receiveChannelStatus(out chan<- string, in <-chan int) {
 	c := <-in
 
-	dvrName := os.Getenv("DVR_STREAM_PREFIX")
+	dvrName := os.Getenv("DVR_RTMP_APP")
 	exporter := NewExporter()
 	prometheus.MustRegister(exporter)
 
