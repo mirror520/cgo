@@ -397,7 +397,7 @@ int PeerInit() {
 
     char *DVR_RTMP_URL      = getenv("DVR_RTMP_URL");
     char *DVR_RTMP_APP      = getenv("DVR_RTMP_APP");
-    char *DVR_STREAM_PREFIX = getenv("DVR_STREAM_PREFIX");
+//    char *DVR_STREAM_PREFIX = getenv("DVR_STREAM_PREFIX");
     int   DVR_BIT_RATE = atoi(getenv("DVR_BIT_RATE"));          // unit: KB
     char *DVR_LIVE_MODE     = getenv("DVR_LIVE_MODE");          // shortcut / codec
 
@@ -426,9 +426,9 @@ int PeerInit() {
     char *rtmp_url;
     int len;
     for (int i=0; i<channels; i++) {
-        len = snprintf(NULL, 0, "rtmp://%s/%s/%s_%d", DVR_RTMP_URL, DVR_RTMP_APP, DVR_STREAM_PREFIX, i);
+        len = snprintf(NULL, 0, "rtmp://%s/%s/%d", DVR_RTMP_URL, DVR_RTMP_APP, i);
         rtmp_url = (char *) malloc(len + 1);
-        snprintf(rtmp_url, len + 1, "rtmp://%s/%s/%s_%d", DVR_RTMP_URL, DVR_RTMP_APP, DVR_STREAM_PREFIX, i);
+        snprintf(rtmp_url, len + 1, "rtmp://%s/%s/%d", DVR_RTMP_URL, DVR_RTMP_APP, i);
 
         dvr->channels[i] = (DVRChannel *) malloc(sizeof(DVRChannel));
         dvr->channels[i]->id = i;
